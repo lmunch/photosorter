@@ -1,33 +1,50 @@
 #!/usr/bin/env python
 """Simple photo and video sorter
 
-This tool bla bla.
+This
+https://exiftool.org/
 
 Example:
 $ ./photosorter.py SRCDIR DESTDIR
 """
 
 import argparse
-import hashlib
+import json
 import os
 import pathlib
 import shutil
 import sys
 from datetime import datetime
-
-import exiftool
+from plumbum.cmd import exiftool, md5sum
 
 
 class CustomHelpFormatter(argparse.ArgumentDefaultsHelpFormatter,
                           argparse.RawDescriptionHelpFormatter):
     pass
 
-def md5(fname):
-    hash_md5 = hashlib.md5()
-    with open(fname, "rb") as f:
-        for chunk in iter(lambda: f.read(4096), b""):
-            hash_md5.update(chunk)
-    return hash_md5.hexdigest()
+
+def get_metadata(filename):
+    """Get EXIF metadata in JSON format using ExifTool"""
+    exiftool_json = exiftool["-j", "-G", "-n", filename]
+    try:
+        metadata = json.loads(exiftool_json())[0]
+    except Exception as e:
+        print("SKIP: Error getting metadata for %s: %s" % (filename, str(e)))
+        return None
+    return metadata
+
+
+def get_md5(filename):
+    """Get MD5 sum without EXIF information"""
+    exiftool_md5 = exiftool["-all=", "-o", "-", "-b", filename] | md5sum["-b", "-"]
+    try:
+        md5 = exiftool_md5()
+        md5 = md5.split()[0]
+    except Exception as e:
+        print("Error getting md5sum for %s: %s" % (filename, str(e)))
+        sys.exit(1)
+    return md5
+
 
 def sorter(srcdir, destdir, move, dryrun):
     for path in pathlib.Path(srcdir).rglob("*"):
@@ -38,17 +55,18 @@ def sorter(srcdir, destdir, move, dryrun):
         # Get timestamp using exiftool
         if filename.lower().endswith(('.jpg', '.mp4', '.3gp', '.mov')):
             extension = filename.lower()[-3:]
-            with exiftool.ExifTool() as et:
-                metadata = et.get_metadata(filename)
-                if "EXIF:DateTimeOriginal" in metadata:
-                    timestamp = metadata["EXIF:DateTimeOriginal"]
-                elif "EXIF:ModifyDate" in metadata:
-                    timestamp = metadata["EXIF:ModifyDate"]
-                elif "QuickTime:CreateDate" in metadata:
-                    timestamp = metadata["QuickTime:CreateDate"]
-                else:
-                    print("SKIP: Date missing %s" % filename)
-                    continue
+            metadata = get_metadata(filename)
+            if not metadata:
+                continue
+            if "EXIF:DateTimeOriginal" in metadata:
+                timestamp = metadata["EXIF:DateTimeOriginal"]
+#            elif "EXIF:ModifyDate" in metadata:
+#                timestamp = metadata["EXIF:ModifyDate"]
+            elif "QuickTime:CreateDate" in metadata:
+                timestamp = metadata["QuickTime:CreateDate"]
+            else:
+                print("SKIP: Date missing %s" % filename)
+                continue
         else:
             print("SKIP: Unknown %s" % filename)
             continue
@@ -76,8 +94,8 @@ def sorter(srcdir, destdir, move, dryrun):
                                         (dateobj.strftime("%Y%m%d_%H%M%S"),
                                         "_%03d" % i if i > 0 else "", extension))
             if os.path.exists(new_filename):
-                src_md5 = md5(filename)
-                dst_md5 = md5(new_filename)
+                src_md5 = get_md5(filename)
+                dst_md5 = get_md5(new_filename)
                 if src_md5 == dst_md5:
                     print("SKIP: duplicate %s %s" % (filename, new_filename))
                     new_filename = None
@@ -128,7 +146,5 @@ if __name__ == "__main__":
     if not os.path.isdir(destdir):
         print("Could not find destination directory %s" % destdir)
         sys.exit(1)
-
-    os.environ["PATH"] += os.pathsep + "/usr/bin/site_perl"
 
     sorter(srcdir, destdir, args.move, args.dryrun)
