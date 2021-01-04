@@ -41,12 +41,12 @@ def get_md5(filename):
         md5 = exiftool_md5()
         md5 = md5.split()[0]
     except Exception as e:
-        print("Error getting md5sum for %s: %s" % (filename, str(e)))
-        sys.exit(1)
+        print("SKIP: Error getting md5sum for %s: %s" % (filename, str(e)))
+        return None
     return md5
 
 
-def sorter(srcdir, destdir, move, dryrun):
+def sorter(srcdir, destdir, move, dryrun, overwrite):
     for path in pathlib.Path(srcdir).rglob("*"):
         filename = str(path)
         if os.path.isdir(filename):
@@ -60,8 +60,6 @@ def sorter(srcdir, destdir, move, dryrun):
                 continue
             if "EXIF:DateTimeOriginal" in metadata:
                 timestamp = metadata["EXIF:DateTimeOriginal"]
-#            elif "EXIF:ModifyDate" in metadata:
-#                timestamp = metadata["EXIF:ModifyDate"]
             elif "QuickTime:CreateDate" in metadata:
                 timestamp = metadata["QuickTime:CreateDate"]
             else:
@@ -95,12 +93,20 @@ def sorter(srcdir, destdir, move, dryrun):
                                         "_%03d" % i if i > 0 else "", extension))
             if os.path.exists(new_filename):
                 src_md5 = get_md5(filename)
+                if not src_md5:
+                    new_filename = None
+                    break
                 dst_md5 = get_md5(new_filename)
                 if src_md5 == dst_md5:
-                    print("SKIP: duplicate %s %s" % (filename, new_filename))
-                    new_filename = None
-                    if move and not dryrun:
-                        os.remove(filename)
+                    if overwrite:
+                        print("Remove duplicate %s" % (new_filename))
+                        if not dryrun:
+                            os.remove(new_filename)
+                    else:
+                        print("SKIP: duplicate %s %s" % (filename, new_filename))
+                        new_filename = None
+                        if move and not dryrun:
+                            os.remove(filename)
                     break
             else:
                 break
@@ -125,6 +131,8 @@ if __name__ == "__main__":
                         help="Verbose output")
     parser.add_argument("--dryrun", default=False, action="store_true",
                         help="Do not copy/move any files")
+    parser.add_argument("--overwrite", default=False, action="store_true",
+                        help="Overwrite duplicates")
     parser.add_argument("--move", default=False, action="store_true",
                         help="Move files instead of copy")
     parser.add_argument("srcdir", metavar="SRCDIR", nargs=1,
@@ -147,4 +155,4 @@ if __name__ == "__main__":
         print("Could not find destination directory %s" % destdir)
         sys.exit(1)
 
-    sorter(srcdir, destdir, args.move, args.dryrun)
+    sorter(srcdir, destdir, args.move, args.dryrun, args.overwrite)
