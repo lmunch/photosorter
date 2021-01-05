@@ -1,10 +1,7 @@
 #!/usr/bin/env python
-"""Fixes broken EXIF in image files
+"""Add or modify dates in EXIF in image files
 
-WARNING: you must customize the fixes needed before using tool
-
-This tool get EXIF information as JSON, changes the information according to
-your customizations and writes new EXIF information to the file.
+bla..
 """
 
 import argparse
@@ -32,8 +29,8 @@ def get_metadata(filename):
         return None
     return metadata
 
-def set_metadata(filename, jsonfile):
-    exiftool_set_json = exiftool["-all=", "-json=%s" % jsonfile, "-overwrite_original", filename]
+def add_metadata(filename, jsonfile):
+    exiftool_set_json = exiftool["-json+=%s" % jsonfile, "-overwrite_original", filename]
     try:
         exiftool_set_json()
     except Exception as e:
@@ -56,24 +53,21 @@ if __name__ == "__main__":
 
         # Customize below to fix broken EXIF info
         if "DateTimeOriginal" in j[0]:
-            print("Skip %s" % filename)
+            print("SKIP: DateTimeOriginal: %s" % j[0]["DateTimeOriginal"])
             continue
-        print("Fixing %s" % filename)
-        if "ExifTool:Warning" in j[0]:
-            del j[0]["ExifTool:Warning"]
-        if "ISO" in j[0] and j[0]["ISO"] == "":
-            del j[0]["ISO"]
-        if "UserComment" in j[0]:
-            del j[0]["UserComment"]
-        if "Comment" in j[0]:
-            del j[0]["Comment"]
-        if "DateTimeOriginal" not in j[0]:
-            j[0]["DateTimeOriginal"] = j[0]["ModifyDate"]
-        if "CreateDate" not in j[0]:
-            j[0]["CreateDate"] = j[0]["ModifyDate"]
+        if "CreateDate" in j[0]:
+            print("SKIP: CreateDate: %s" % j[0]["CreateDate"])
+            continue
+        if "ModifyDate" in j[0]:
+            print("SKIP: ModifyDate: %s" % j[0]["ModifyDate"])
+            continue
+
+        j[0]["DateTimeOriginal"] = "2017:09:10 16:48:46"
+        j[0]["CreateDate"] = "2017:09:10 16:48:46"
+        j[0]["ModifyDate"] = "2017:09:10 16:48:46"
 
         # Set new metadata
         jsonfile = os.path.splitext(filename)[0] + ".json"
         with open(jsonfile, 'w') as fd:
             fd.write(json.dumps(j, indent=4, sort_keys=True))
-        set_metadata(filename, jsonfile)
+        add_metadata(filename, jsonfile)
